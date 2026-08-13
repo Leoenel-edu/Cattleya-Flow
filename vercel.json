@@ -1,6 +1,6 @@
 {
   "functions": {
-    "backend/main.py": {
+    "main.py": {
       "includeFiles": "frontend/**"
     }
   }

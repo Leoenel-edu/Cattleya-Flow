@@ -398,9 +398,9 @@ serverless).
 
 1. Entra a [vercel.com](https://vercel.com) → **Add New → Project** → importa
    `Leoenel-edu/Cattleya-Flow` desde GitHub.
-2. Vercel detecta el framework FastAPI automáticamente y usa `pyproject.toml`
-   (`[tool.vercel] entrypoint = "backend.main:app"`) para encontrar la app.
-   No hace falta tocar el *Build Command*.
+2. Vercel detecta el framework FastAPI automáticamente a partir de `main.py`
+   en la raíz (reexporta `backend.main:app`; es uno de los nombres que Vercel
+   reconoce por convención). No hace falta tocar el *Build Command*.
 3. En **Environment Variables**, agrega las mismas claves del `.env`:
 
    | Variable | Valor |
