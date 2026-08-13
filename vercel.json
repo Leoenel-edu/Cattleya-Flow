@@ -1,10 +1,7 @@
 {
   "functions": {
-    "api/index.py": {
+    "backend/main.py": {
       "includeFiles": "frontend/**"
     }
-  },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
-  ]
+  }
 }
