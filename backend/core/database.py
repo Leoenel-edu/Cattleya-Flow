@@ -8,6 +8,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from backend.core.config import settings
 
@@ -18,11 +19,23 @@ if es_sqlite:
     ruta_db = settings.DATABASE_URL.replace("sqlite:///", "")
     Path(ruta_db).parent.mkdir(parents=True, exist_ok=True)
 
+if es_sqlite:
+    connect_args = {"check_same_thread": False}  # SQLite bloquea otros hilos por defecto
+    opciones_pool = {}
+else:
+    # Supabase se conecta por el "connection pooler" (PgBouncer, modo
+    # transaccion): no admite sentencias preparadas ni conexiones que viven
+    # entre invocaciones. NullPool + prepare_threshold=None evitan el error
+    # "prepared statement already exists" cuando Vercel arranca varias
+    # instancias serverless a la vez.
+    connect_args = {"prepare_threshold": None}
+    opciones_pool = {"poolclass": NullPool}
+
 engine = create_engine(
     settings.DATABASE_URL,
-    # SQLite bloquea el acceso desde otros hilos por defecto; FastAPI usa varios.
-    connect_args={"check_same_thread": False} if es_sqlite else {},
+    connect_args=connect_args,
     echo=False,
+    **opciones_pool,
 )
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)

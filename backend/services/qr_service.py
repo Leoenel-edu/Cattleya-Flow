@@ -18,7 +18,6 @@ bloqueada y el flujo no funcionaria.
 """
 import socket
 from io import BytesIO
-from pathlib import Path
 
 import qrcode
 from reportlab.lib import colors
@@ -82,15 +81,19 @@ def generar_qr_png(contenido: str, tamano_caja: int = 10) -> bytes:
     return buffer.getvalue()
 
 
-def generar_hoja_pdf(habitaciones: list[dict]) -> Path:
+def generar_hoja_pdf(habitaciones: list[dict]) -> tuple[bytes, str]:
     """Hoja imprimible con un QR por habitacion, para pegar en las puertas.
 
     Se entrega como PDF y no como pagina HTML porque las imagenes de una pagina
     web no pueden enviar el token de sesion en la cabecera; el PDF viaja por el
-    mismo canal autenticado que los reportes.
+    mismo canal autenticado que los reportes. Se genera en memoria (BytesIO):
+    no hay disco persistente en un entorno serverless (Vercel).
+
+    Devuelve (contenido, nombreArchivo).
     """
-    destino = settings.REPORTES_DIR / f"codigos-qr-{ahora().strftime('%Y%m%d-%H%M%S')}.pdf"
-    lienzo = pdf_canvas.Canvas(str(destino), pagesize=A4)
+    nombre = f"codigos-qr-{ahora().strftime('%Y%m%d-%H%M%S')}.pdf"
+    buffer = BytesIO()
+    lienzo = pdf_canvas.Canvas(buffer, pagesize=A4)
     ancho_pagina, alto_pagina = A4
 
     COLUMNAS = 3
@@ -162,4 +165,4 @@ def generar_hoja_pdf(habitaciones: list[dict]) -> Path:
 
     lienzo.showPage()
     lienzo.save()
-    return destino
+    return buffer.getvalue(), nombre

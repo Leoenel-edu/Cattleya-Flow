@@ -3,8 +3,11 @@
 Convierte el Map de metricas en un archivo PDF o Excel descargable.
 Usa las librerias que el documento lista como Servicios Externos:
 openpyxl (.xlsx) y reportlab (.pdf).
+
+Genera todo en memoria (BytesIO): no escribe a disco porque en un entorno
+serverless (Vercel) el sistema de archivos no persiste entre peticiones.
 """
-from pathlib import Path
+from io import BytesIO
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -14,7 +17,6 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from backend.core.config import settings
 from backend.core.tiempo import ahora
 from backend.services.errors import FormatoInvalido
 
@@ -27,10 +29,10 @@ _ROSA_CLARO = "FDEEF4"
 
 class GeneradorArchivo:
     @staticmethod
-    def exportar(metricas: dict, formato: str, periodo: str) -> Path:
+    def exportar(metricas: dict, formato: str, periodo: str) -> tuple[bytes, str]:
         """`exportar(metricas, formato)` del diagrama.
 
-        Devuelve la ruta del archivo generado.
+        Devuelve (contenido, nombreArchivo).
         """
         formato = (formato or "").lower().strip()
 
@@ -43,18 +45,19 @@ class GeneradorArchivo:
 
         marca = ahora().strftime("%Y%m%d-%H%M%S")
         extension = "xlsx" if formato == "excel" else "pdf"
-        destino = settings.REPORTES_DIR / f"reporte-productividad-{marca}.{extension}"
+        nombre = f"reporte-productividad-{marca}.{extension}"
+        buffer = BytesIO()
 
         if formato == "excel":
-            GeneradorArchivo._generarExcel(metricas, periodo, destino)
+            GeneradorArchivo._generarExcel(metricas, periodo, buffer)
         else:
-            GeneradorArchivo._generarPDF(metricas, periodo, destino)
+            GeneradorArchivo._generarPDF(metricas, periodo, buffer)
 
-        return destino
+        return buffer.getvalue(), nombre
 
     # ------------------------------------------------------------------ Excel
     @staticmethod
-    def _generarExcel(metricas: dict, periodo: str, destino: Path) -> None:
+    def _generarExcel(metricas: dict, periodo: str, destino: BytesIO) -> None:
         """RS-02: Excel con tiempo promedio, habitaciones por persona y eficiencia."""
         libro = Workbook()
         hoja = libro.active
@@ -109,9 +112,9 @@ class GeneradorArchivo:
 
     # -------------------------------------------------------------------- PDF
     @staticmethod
-    def _generarPDF(metricas: dict, periodo: str, destino: Path) -> None:
+    def _generarPDF(metricas: dict, periodo: str, destino: BytesIO) -> None:
         documento = SimpleDocTemplate(
-            str(destino),
+            destino,
             pagesize=A4,
             topMargin=2 * cm,
             bottomMargin=2 * cm,

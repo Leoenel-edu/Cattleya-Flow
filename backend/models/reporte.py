@@ -1,8 +1,9 @@
 """Entidad Reporte del diagrama de clases (seccion 1.1).
 
-Guarda la metadata de cada reporte generado (CU-04). El calculo de metricas
-y la escritura del archivo viven en ReporteService y GeneradorArchivo: esta
-clase solo describe el reporte, no lo produce.
+Guarda la metadata de cada reporte generado (CU-04, RNF-06: auditoria). El
+calculo de metricas y la generacion del archivo viven en ReporteService y
+GeneradorArchivo: esta clase solo deja constancia de que se genero, no
+guarda el archivo (se entrega en el momento, no se persiste).
 """
 from datetime import datetime
 
@@ -25,20 +26,10 @@ class Reporte(Base):
     formato: Mapped[str] = mapped_column(String(10), nullable=False)
     periodo: Mapped[str] = mapped_column(String(40), nullable=False)
 
-    # Fuera del diagrama: ruta del archivo en disco y estado de la generacion
-    # asincrona. CU-04 responde 202 Accepted y el archivo se escribe despues,
-    # asi que hace falta saber si ya esta listo.
-    rutaArchivo: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    estado: Mapped[str] = mapped_column(String(20), default="procesando", nullable=False)
-
     solicitante_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios.id"), nullable=True
     )
     solicitante: Mapped["Usuario | None"] = relationship()  # noqa: F821
 
-    @property
-    def estaListo(self) -> bool:
-        return self.estado == "listo" and self.rutaArchivo is not None
-
     def __repr__(self) -> str:
-        return f"<Reporte {self.id} {self.tipo}/{self.formato} ({self.estado})>"
+        return f"<Reporte {self.id} {self.tipo}/{self.formato}>"

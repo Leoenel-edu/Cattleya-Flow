@@ -14,7 +14,6 @@ flowchart TB
     subgraph P["CAPA DE PRESENTACIÓN"]
         FE["frontend/<br/>HTML · CSS · JS"]
         API["backend/api/routes/<br/>Controladores REST"]
-        WS["backend/realtime/<br/>WebSocket"]
     end
 
     subgraph N["CAPA DE LÓGICA DE NEGOCIO"]
@@ -27,17 +26,26 @@ flowchart TB
     end
 
     subgraph BD["PERSISTENCIA"]
-        SQL[("SQLite / PostgreSQL")]
+        SQL[("PostgreSQL (Supabase)")]
     end
 
+    RT["Supabase Realtime<br/>(externo, no es codigo propio)"]
+
     FE -->|HTTP + JSON| API
-    FE <-.->|WebSocket| WS
+    FE <-.->|suscripcion a cambios| RT
+    RT -.->|replicacion| SQL
     API --> SVC
-    WS --> SVC
     SVC --> REPO
     REPO --> MOD
     MOD --> SQL
 ```
+
+`RT` (Supabase Realtime) no es un módulo propio: detecta los `UPDATE` sobre
+`habitaciones` por replicación de Postgres y se los reenvía al frontend
+suscrito. Antes era un `backend/realtime/websocket_manager.py` propio; se
+reemplazó al desplegar en Vercel (serverless, sin proceso persistente que
+sostenga un WebSocket) — ver decisión en la sección 5 y
+[README sección 8](../README.md#8-desplegar-en-vercel--supabase).
 
 La prueba de que la separación es real: **los servicios no importan nada de
 FastAPI**. Lanzan excepciones de dominio (`TransicionInvalida`,
@@ -90,7 +98,7 @@ el frontend solo dibuja lo que recibe.
 | Autenticación (JWT + bcrypt) | `services/auth_service.py`, `core/security.py` |
 | Gestión de Habitaciones (máquina de estados) | `services/habitacion_service.py`, `models/habitacion.py` |
 | Códigos QR por habitación | `services/qr_service.py` |
-| WebSocket (tiempo real) | `realtime/websocket_manager.py` |
+| Tiempo real (Supabase Realtime) | `frontend/js/realtime.js`, `GET /api/config` |
 | Reportes | `services/reporte_service.py` |
 | Historial / Auditoría | `services/historial_service.py`, `models/historial_accion.py` |
 | Gestión de Usuarios | `services/usuario_service.py` |
@@ -122,7 +130,7 @@ flowchart LR
 
     subgraph C["CATTLEYA-FLOW"]
         FE["Frontend<br/>HTML · CSS · JS"]
-        BE["Backend<br/>API REST + WebSocket"]
+        BE["Backend<br/>API REST (Vercel serverless)"]
         FE <--> BE
     end
 
@@ -130,9 +138,10 @@ flowchart LR
         PDF["📄 reportlab / openpyxl<br/>PDF · Excel"]
         MAIL["✉️ SMTP<br/>Correos"]
         CRY["🔒 bcrypt · JWT<br/>Seguridad"]
+        RT["📡 Supabase Realtime"]
     end
 
-    DB[("🗄️ Base de Datos<br/>SQLite / PostgreSQL")]
+    DB[("🗄️ Base de Datos<br/>PostgreSQL (Supabase)")]
 
     A -->|HTTPS| FE
     S -->|HTTPS| FE
@@ -143,8 +152,9 @@ flowchart LR
     BE --> PDF
     BE --> MAIL
     BE --> CRY
+    RT -->|replicacion de DB| DB
 
-    BE -.->|tiempo real < 5 seg| R
+    FE -.->|tiempo real < 5 seg| RT
 ```
 
 ## 4. Flujo de comunicación
@@ -152,10 +162,10 @@ flowchart LR
 1. El usuario envía credenciales al **Módulo de Autenticación** por HTTPS. Este
    verifica el hash bcrypt en la base de datos y devuelve un token JWT.
 2. El **Personal de Limpieza** cambia el estado de una habitación. El **Módulo
-   de Gestión de Habitaciones** valida la transición, actualiza la BD y activa
-   el **Módulo WebSocket**.
-3. El **Módulo WebSocket** transmite el cambio a todos los clientes suscritos:
-   la recepcionista ve el color verde sin recargar la página.
+   de Gestión de Habitaciones** valida la transición y actualiza la BD.
+3. **Supabase Realtime** detecta ese cambio por replicación de Postgres y lo
+   transmite a todos los clientes suscritos: la recepcionista ve el color
+   verde sin recargar la página.
 4. El **Administrador** solicita un reporte. El **Módulo de Reportes** consulta
    los registros, procesa las métricas y usa reportlab/openpyxl para generar el
    archivo.
@@ -182,6 +192,8 @@ Cambios respecto al prototipo inicial, con su justificación:
 | **Servidor publicado en `0.0.0.0`** | Atado a `127.0.0.1` solo aceptaba conexiones de la propia máquina: los QR apuntaban a la IP de red y ningún celular podía abrirlos. Requiere además una regla de firewall para el puerto 8000 (ver README sección 3). |
 | **Estáticos con `Cache-Control: no-cache`** | Sin esa cabecera el navegador conserva versiones viejas de los `.js` y los mezcla con HTML nuevo, produciendo errores que no existen en el código fuente. `no-cache` obliga a revalidar; si nada cambió la respuesta sigue siendo un 304 vacío. Las imágenes sí se cachean: pesan más de 1 MB y no cambian. |
 | **Email con AES-256 + índice ciego, en vez de columna en claro** | RNF-02 exige AES-256 para "datos sensibles", no solo bcrypt en contraseñas. AES-GCM usa un nonce aleatorio: cifrar el mismo email dos veces da resultados distintos, así que no se puede hacer `WHERE emailCifrado = ?` para el login. Se guarda además un HMAC-SHA256 determinista (`emailIndice`) del email normalizado: mismo email → mismo hash, así que sí permite búsqueda exacta por índice, sin ser reversible (no filtra el email si alguien solo tiene el hash). |
+| **WebSocket propio reemplazado por Supabase Realtime** | Al desplegar en Vercel (funciones serverless, sin proceso persistente) un WebSocket mantenido por el propio backend deja de ser viable: la función puede reciclarse entre una conexión y la siguiente. Supabase Realtime resuelve esto detectando los cambios directo en Postgres, fuera del ciclo de vida de la función. |
+| **Reportes y hoja de QR generados en memoria, no en disco** | `storage/reportes/` funcionaba porque el servidor tenía un disco persistente entre peticiones. En Vercel cada invocación es efímera: un archivo escrito en una petición puede no existir en la siguiente. Se genera el PDF/Excel en memoria (`BytesIO`) y se entrega en la misma respuesta; de paso, CU-04 pasó de asíncrono (202 + polling) a síncrono, porque ya no hay un archivo que sobreviva para que una petición posterior lo recoja. |
 
 ---
 
@@ -194,5 +206,7 @@ Cambios respecto al prototipo inicial, con su justificación:
   y la habitación de cada uno (RNF-05).
 - **Filtrado en la capa de datos**, no en el navegador: el panel no descarga 24
   habitaciones para mostrar 6.
-- **Operaciones pesadas en segundo plano**: la generación de archivos y el envío
-  de correos no bloquean la respuesta HTTP.
+- **Generación de archivos en memoria**: los reportes y la hoja de QR se arman
+  con `BytesIO` (sin tocar disco) y se entregan en la misma respuesta; al
+  tratarse de una sola tabla de métricas o 24 códigos QR, el costo es
+  milisegundos, no justifica el asincronismo que tenía la versión con disco.

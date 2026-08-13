@@ -12,12 +12,11 @@ __pycache__/
 database/*.db
 database/*.db-journal
 
-# Reportes generados en tiempo de ejecucion
-storage/reportes/*
-!storage/reportes/.gitkeep
-
 # Configuracion con secretos
 .env
+
+# Vercel CLI (vincula el proyecto localmente, no se comparte)
+.vercel/
 
 # Editores / SO
 .vscode/

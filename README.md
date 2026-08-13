@@ -79,8 +79,11 @@ menos de 5 segundos. Para mostrarlo:
 > así que comparten la sesión. Para ver dos roles a la vez hacen falta dos
 > navegadores o una ventana de incógnito.
 
-La propagación es por WebSocket: el servidor empuja el evento en cuanto ocurre,
-por lo que la latencia real es de milisegundos.
+La propagación es por Supabase Realtime: en cuanto el backend confirma el
+cambio en la base de datos, Supabase lo empuja a todos los navegadores
+suscritos, por lo que la latencia real es de milisegundos. (Sin credenciales
+de Supabase configuradas, el sistema sigue funcionando pero sin esta
+actualización automática — hay que recargar a mano.)
 
 ---
 
@@ -197,8 +200,8 @@ el taller de arquitectura. Cada capa solo conoce la inmediatamente inferior.
 ┌──────────────────────────────────────────────────┐
 │  PRESENTACIÓN                                    │
 │  frontend/            interfaz (HTML/CSS/JS)     │
+│  frontend/js/realtime.js  cliente Supabase Realtime │
 │  backend/api/         controladores REST         │
-│  backend/realtime/    WebSocket (tiempo real)    │
 ├──────────────────────────────────────────────────┤
 │  LÓGICA DE NEGOCIO                               │
 │  backend/services/    reglas del dominio         │
@@ -208,7 +211,7 @@ el taller de arquitectura. Cada capa solo conoce la inmediatamente inferior.
 │  backend/models/        entidades                │
 ├──────────────────────────────────────────────────┤
 │  PERSISTENCIA                                    │
-│  database/            SQLite                     │
+│  database/            SQLite (local) / Supabase  │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -227,6 +230,7 @@ La separación es real, no solo de carpetas:
 
 ```
 Cattleya-Flow/
+├── api/index.py                 punto de entrada para Vercel (reexporta backend.main:app)
 ├── backend/
 │   ├── main.py                  ensamblaje de la aplicación
 │   ├── core/                    configuración, BD, seguridad, tiempo
@@ -234,20 +238,19 @@ Cattleya-Flow/
 │   ├── schemas/                 contratos de entrada/salida (Pydantic)
 │   ├── repositories/            acceso a datos
 │   ├── services/                lógica de negocio (un módulo por caso de uso)
-│   ├── api/routes/              controladores REST
-│   └── realtime/                gestor de WebSocket
+│   └── api/routes/              controladores REST
 ├── frontend/
 │   ├── index.html
 │   ├── css/styles.css
-│   ├── js/                      un módulo por pantalla
+│   ├── js/                      un módulo por pantalla (realtime.js habla con Supabase)
 │   └── assets/                  imágenes
 ├── database/
 │   ├── seed.py                  datos iniciales
-│   └── cattleya.db              (se genera al ejecutar el seed)
-├── storage/reportes/            reportes PDF/Excel generados
+│   └── cattleya.db              (SQLite local; no existe si usas Supabase)
 ├── docs/                        documentación técnica
 ├── requirements.txt
-└── run.py                       punto de arranque
+├── vercel.json                  configuración de despliegue
+└── run.py                       punto de arranque local
 ```
 
 ---
@@ -336,24 +339,95 @@ Reglas y su porqué:
 
 ---
 
-## 8. Migrar a PostgreSQL
+## 8. Desplegar en Vercel + Supabase
 
-El documento especifica PostgreSQL. El proyecto usa SQLite para que arranque sin
-instalar nada, pero el cambio no toca el diseño por capas:
+El documento especifica PostgreSQL; el proyecto usa SQLite en local para que
+arranque sin instalar nada, pero el cambio de motor no toca el diseño por
+capas: los repositorios usan SQLAlchemy, que lo abstrae. En producción se usa
+**Supabase** (PostgreSQL gestionado + tiempo real) y **Vercel** (hosting
+serverless).
 
-```bash
-pip install psycopg[binary]
-```
+### 8.1 Crear el proyecto en Supabase
 
-En el `.env`:
+1. Entra a [supabase.com](https://supabase.com), crea una cuenta y un
+   **New Project**. Elige una contraseña de base de datos y guárdala.
+2. Espera a que aprovisione (1-2 min).
+3. **Connection string** (para el backend): *Project Settings → Database →
+   Connection string → Connection pooling*. Copia el modo **Transaction**
+   (puerto `6543`, no el `5432` directo: el pooler es el que soporta muchas
+   conexiones cortas simultáneas, que es como trabaja una función serverless).
+   Se ve así:
 
-```
-CATTLEYA_DATABASE_URL=postgresql+psycopg://usuario:clave@localhost:5432/cattleya
-```
+   ```
+   postgresql://postgres.xxxxxxxxxxxx:[TU-PASSWORD]@aws-0-xxxx.pooler.supabase.com:6543/postgres
+   ```
 
-Y ejecutar `python -m database.seed`. Nada más: los repositorios usan SQLAlchemy,
-que abstrae el motor. Esa es precisamente la ventaja de la arquitectura por capas
-que se argumentó en el taller.
+   Cámbiale el prefijo a `postgresql+psycopg://` (el proyecto usa el driver
+   `psycopg`, no `psycopg2`) y esa es tu `CATTLEYA_DATABASE_URL`.
+4. **URL y anon key** (para el tiempo real del frontend): *Project Settings →
+   Data API*. Copia **Project URL** y la clave **anon public** — son
+   `CATTLEYA_SUPABASE_URL` y `CATTLEYA_SUPABASE_ANON_KEY`.
+5. Crea las tablas: corre localmente, apuntando ya a Supabase,
+
+   ```bash
+   pip install -r requirements.txt
+   # .env con CATTLEYA_DATABASE_URL apuntando a Supabase (ver paso 3)
+   python -m database.seed
+   ```
+
+   Esto crea el esquema (`Base.metadata.create_all`) y carga los datos de
+   demostración directo en Supabase.
+6. **Activa el tiempo real sobre `habitaciones`** (CU-03, RNF-04): en el panel
+   de Supabase ve a *Database → Replication* y activa la tabla `habitaciones`
+   para la publicación `supabase_realtime`. Sin este paso el panel sigue
+   funcionando, pero no se actualiza solo entre usuarios.
+7. Si la tabla tiene **Row Level Security** activado (Supabase lo sugiere por
+   defecto), agrégale una policy de `SELECT` para el rol `anon` — si no,
+   Realtime no le entrega los cambios al navegador aunque esté suscrito:
+
+   ```sql
+   alter table habitaciones enable row level security;
+   create policy "Lectura publica de habitaciones" on habitaciones
+     for select to anon using (true);
+   ```
+
+   Esto no expone nada nuevo: la app ya no protegía el canal de tiempo real
+   con el JWT propio (el `/ws/habitaciones` original tampoco lo hacía), solo
+   se sigue el mismo criterio con el mecanismo de Supabase.
+
+### 8.2 Desplegar en Vercel
+
+1. Entra a [vercel.com](https://vercel.com) → **Add New → Project** → importa
+   `Leoenel-edu/Cattleya-Flow` desde GitHub.
+2. Vercel detecta `vercel.json` y usa el runtime de Python automáticamente
+   (`api/index.py`). No hace falta tocar el *Build Command*.
+3. En **Environment Variables**, agrega las mismas claves del `.env`:
+
+   | Variable | Valor |
+   |---|---|
+   | `CATTLEYA_DATABASE_URL` | la cadena del paso 8.1.3 (con `+psycopg`) |
+   | `CATTLEYA_SUPABASE_URL` | del paso 8.1.4 |
+   | `CATTLEYA_SUPABASE_ANON_KEY` | del paso 8.1.4 |
+   | `CATTLEYA_SECRET_KEY` | una clave larga y aleatoria (no la de desarrollo) |
+   | `CATTLEYA_BASE_URL` | tu dominio de Vercel, ej. `https://cattleya-flow.vercel.app` (para que los QR no intenten detectar una IP de red local, que no existe en un servidor) |
+
+4. **Deploy**. Al terminar, abre la URL que te da Vercel: debería verse
+   igual que en local, ya con la base de datos de Supabase.
+
+### Qué cambia respecto a correrlo en tu máquina
+
+Vercel ejecuta funciones **serverless** (sin proceso persistente ni disco
+compartido entre peticiones), así que dos partes del diseño original se
+adaptaron para encajar ahí — ver [docs/arquitectura.md](docs/arquitectura.md)
+para el detalle de cada decisión:
+
+- **Tiempo real:** ya no es un WebSocket propio (`backend/realtime/`, que
+  existía en versiones anteriores de este README); el frontend se suscribe
+  directo a Supabase Realtime (`frontend/js/realtime.js`, `GET /api/config`).
+- **Reportes y hoja de QR (CU-04, CU-02):** se generan en memoria y se
+  entregan en la misma petición, en vez de escribirse en `storage/` y
+  descargarse después — en una función serverless ese archivo no
+  sobreviviría hasta la siguiente petición.
 
 ---
 
@@ -365,12 +439,14 @@ mezclar fechas con y sin zona provoca el error
 *"can't subtract offset-naive and offset-aware datetimes"*. Ningún módulo llama
 a `datetime.now()` directamente; todos usan `ahora()`.
 
-**El WebSocket y los hilos.** FastAPI ejecuta los endpoints declarados `def` en
-un hilo del threadpool, donde no existe un bucle de eventos. Por eso el bucle
-principal se registra al arrancar (`manager.registrar_loop`) y el broadcast se
-publica con `run_coroutine_threadsafe`. Sin esto, los cambios se guardaban en la
-base de datos pero no llegaban a ningún cliente.
+**Tiempo real sin servidor propio.** El backend no reenvía los cambios: solo
+escribe en la base de datos. Es Supabase quien detecta el `UPDATE` sobre
+`habitaciones` (vía replicación de Postgres) y lo empuja a los navegadores
+suscritos. Esto es lo que hace posible que el tiempo real funcione en un
+backend serverless (Vercel), donde no hay un proceso persistente que pueda
+mantener conexiones WebSocket abiertas él mismo. Ver
+[sección 8](#8-desplegar-en-vercel--supabase).
 
 **Reconexión.** Si se pierde la conexión en tiempo real, el cliente reintenta
 3 veces con espera creciente (2s, 4s, 6s) y luego avisa al usuario, tal como
-modela el `loop [max 3 intentos]` del diagrama de CU-03.
+modela el `loop [max 3 intentos]` del diagrama de CU-03 (`frontend/js/realtime.js`).

@@ -70,7 +70,7 @@ const Panel = (() => {
     </div>`;
   }
 
-  /** Un cambio llego por WebSocket: se refresca el panel completo.
+  /** Un cambio llego por Supabase Realtime: se refresca el panel completo.
    *  Recargar es mas simple que parchear la tarjeta y garantiza que las
    *  estadisticas y el badge del menu queden coherentes. */
   async function aplicarCambio(habitacion) {

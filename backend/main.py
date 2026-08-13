@@ -6,12 +6,11 @@ Ensambla las capas:
     repositories/Acceso a Datos
     models/      Entidades
 """
-import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,7 +24,6 @@ from backend.api.routes import (
 )
 from backend.core.config import settings
 from backend.core.database import crear_tablas
-from backend.realtime.websocket_manager import manager
 from backend.services.errors import ErrorNegocio
 
 logging.basicConfig(
@@ -35,15 +33,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("cattleya")
 
+# Se ejecuta al importar el modulo (no en el lifespan): en Vercel cada
+# instancia serverless arranca ejecutando este archivo directamente, y el
+# runtime de Python no garantiza que los eventos de lifespan de ASGI corran.
+crear_tablas()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    crear_tablas()
-
-    # Los servicios corren en hilos del threadpool y necesitan una referencia
-    # a este bucle para poder emitir los broadcast del WebSocket.
-    manager.registrar_loop(asyncio.get_running_loop())
-
     logger.info("%s v%s iniciado", settings.APP_NAME, settings.APP_VERSION)
     logger.info("Interfaz:      http://127.0.0.1:8000")
     logger.info("Documentacion: http://127.0.0.1:8000/docs")
@@ -88,34 +85,22 @@ app.include_router(historial_controller.router)
 app.include_router(reporte_controller.router)
 
 
-# ---------------------------------------------------------------- WebSocket
-@app.websocket("/ws/habitaciones")
-async def canal_habitaciones(websocket: WebSocket):
-    """Canal "habitaciones" de CU-03.
-
-    El cliente se suscribe y el servidor le empuja cada cambio de estado
-    (RNF-04: propagacion en menos de 5 segundos).
-    """
-    await manager.conectar(websocket)
-    try:
-        await websocket.send_json({"evento": "conectado", "datos": {"mensaje": "Suscrito al canal habitaciones"}})
-        while True:
-            # Mantiene la conexion viva. El protocolo es unidireccional
-            # (servidor -> cliente), pero hay que leer para detectar el cierre.
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        await manager.desconectar(websocket)
-    except Exception:
-        await manager.desconectar(websocket)
-
-
 @app.get("/api/estado")
 def estado_sistema():
     """Diagnostico rapido: confirma que el backend responde."""
+    return {"sistema": settings.APP_NAME, "version": settings.APP_VERSION}
+
+
+@app.get("/api/config")
+def config_publica():
+    """Configuracion publica que el frontend necesita para conectarse a
+    Supabase Realtime (CU-03, RNF-04). SUPABASE_ANON_KEY esta pensada para
+    exponerse en el cliente: Supabase la limita con Row Level Security, no
+    con secreto, igual que una API key publica de Google Maps.
+    """
     return {
-        "sistema": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "conexionesTiempoReal": manager.total_conexiones,
+        "supabaseUrl": settings.SUPABASE_URL,
+        "supabaseAnonKey": settings.SUPABASE_ANON_KEY,
     }
 
 

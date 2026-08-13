@@ -178,18 +178,13 @@ def main() -> int:
     check("calcula tiempo promedio", metricas["tiempoPromedio"] > 0, metricas["tiempoPromedio"])
     check("eficiencia en rango 50-100", 50 <= metricas["eficienciaGlobal"] <= 100, metricas["eficienciaGlobal"])
 
-    r = cliente.post("/api/reportes", json={"periodo": "hoy", "formato": "excel"}, headers=admin)
-    check("solicitar reporte -> 202 Accepted", r.status_code == 202, r.status_code)
-    reporte_id = r.json()["reporteId"]
-    check("reporte queda listo", cliente.get(f"/api/reportes/{reporte_id}", headers=admin).json()["listo"])
-    r = cliente.get(f"/api/reportes/{reporte_id}/descargar", headers=admin)
+    r = cliente.get("/api/reportes/exportar?periodo=hoy&formato=excel", headers=admin)
     check("descarga Excel real", r.status_code == 200 and len(r.content) > 3000, f"{r.status_code} {len(r.content)}b")
 
-    r = cliente.post("/api/reportes", json={"periodo": "hoy", "formato": "pdf"}, headers=admin)
-    r = cliente.get(f"/api/reportes/{r.json()['reporteId']}/descargar", headers=admin)
+    r = cliente.get("/api/reportes/exportar?periodo=hoy&formato=pdf", headers=admin)
     check("descarga PDF real", r.status_code == 200 and r.content[:4] == b"%PDF", r.content[:8])
 
-    r = cliente.post("/api/reportes", json={"periodo": "hoy", "formato": "word"}, headers=admin)
+    r = cliente.get("/api/reportes/exportar?periodo=hoy&formato=word", headers=admin)
     check("alt [formato invalido] -> 400", r.status_code == 400, r.status_code)
 
     # ---------------------------------------------------------- CU-05
@@ -228,10 +223,11 @@ def main() -> int:
         cliente.patch("/api/usuarios/1", json={"activo": False}, headers=admin).status_code == 400,
     )
 
-    # ------------------------------------------------------ WebSocket
-    seccion("WebSocket (RNF-04)")
-    with cliente.websocket_connect("/ws/habitaciones") as ws:
-        check("suscripcion al canal habitaciones", ws.receive_json()["evento"] == "conectado")
+    # ---------------------------------------------- Tiempo real (RNF-04)
+    seccion("Configuracion de tiempo real (RNF-04)")
+    config = cliente.get("/api/config").json()
+    check("expone supabaseUrl", "supabaseUrl" in config)
+    check("expone supabaseAnonKey", "supabaseAnonKey" in config)
 
     # ------------------------------------------------------- resumen
     print("\n" + "=" * 56)

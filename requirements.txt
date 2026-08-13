@@ -11,6 +11,8 @@ pydantic-settings==2.7.0
 
 # --- Capa de Acceso a Datos ---
 SQLAlchemy==2.0.36
+# Driver de PostgreSQL (Supabase). SQLite no lo necesita: viene con Python.
+psycopg[binary]==3.2.4
 
 # --- Seguridad (RNF-02: bcrypt en contrasenas, AES-256 en datos sensibles, JWT en sesiones) ---
 bcrypt==4.2.1

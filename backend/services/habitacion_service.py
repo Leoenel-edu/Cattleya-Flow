@@ -9,7 +9,6 @@ from backend.models.enums import ETIQUETAS_ESTADO, EstadoHabitacion
 from backend.models.habitacion import Habitacion
 from backend.models.registro_limpieza import RegistroLimpieza
 from backend.models.usuario import Usuario
-from backend.realtime.websocket_manager import notificar_cambio_estado
 from backend.repositories.habitacion_repository import HabitacionRepository
 from backend.repositories.historial_repository import HistorialRepository
 from backend.repositories.registro_repository import RegistroRepository
@@ -150,12 +149,10 @@ class HabitacionService:
         self.db.commit()
         self.db.refresh(habitacion)
 
-        datos = self._serializar(habitacion)
-
-        # broadcast(habitacionId, nuevoEstado) - asincrono, no bloquea la respuesta
-        notificar_cambio_estado(datos)
-
-        return datos
+        # broadcast(habitacionId, nuevoEstado): lo hace Supabase Realtime al
+        # detectar el UPDATE en la tabla "habitaciones" (ver GET /api/config
+        # y frontend/js/realtime.js), no el backend.
+        return self._serializar(habitacion)
 
     # -------------------------------------------------------- serializacion
     def _serializar(self, habitacion: Habitacion) -> dict:

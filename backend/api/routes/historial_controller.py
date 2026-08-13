@@ -2,7 +2,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from backend.api.deps import usuario_actual
@@ -68,7 +68,7 @@ def exportar(
     }
 
     formato_normalizado = formato.lower().strip()
-    ruta = GeneradorArchivo.exportar(
+    contenido, nombre = GeneradorArchivo.exportar(
         metricas,
         formato_normalizado,
         f"Historial{' hab. ' + habitacion if habitacion else ''}",
@@ -79,7 +79,11 @@ def exportar(
         if formato_normalizado == "pdf"
         else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    return FileResponse(path=ruta, filename=ruta.name, media_type=tipo_mime)
+    return Response(
+        content=contenido,
+        media_type=tipo_mime,
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
 
 
 @router.get("/registro/{registro_id}")

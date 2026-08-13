@@ -74,11 +74,3 @@ class CambiarRolRequest(BaseModel):
 
 class CambiarActivoRequest(BaseModel):
     activo: bool
-
-
-# ------------------------------------------------------------------ CU-04
-class SolicitarReporteRequest(BaseModel):
-    periodo: str = Field(default="hoy")
-    tipo: str = Field(default="productividad")
-    formato: str = Field(default="excel")
-    usuarioId: int | None = None

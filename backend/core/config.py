@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     # --- Persistencia ---
     DATABASE_URL: str = f"sqlite:///{BASE_DIR / 'database' / 'cattleya.db'}"
 
+    # --- Tiempo real (CU-03, RNF-04) ---
+    # El panel se suscribe directo a los cambios de la tabla "habitaciones" en
+    # Supabase Realtime (ver GET /api/config). SUPABASE_ANON_KEY es publica por
+    # diseno: Supabase la protege con Row Level Security, no con secreto.
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+
     # --- Codigos QR ---
     # Puerto en el que se publica el servidor. Se usa para armar la URL que
     # llevan los QR de las habitaciones.
@@ -54,12 +61,6 @@ class Settings(BaseSettings):
     @property
     def FRONTEND_DIR(self) -> Path:
         return BASE_DIR / "frontend"
-
-    @property
-    def REPORTES_DIR(self) -> Path:
-        ruta = BASE_DIR / "storage" / "reportes"
-        ruta.mkdir(parents=True, exist_ok=True)
-        return ruta
 
 
 settings = Settings()

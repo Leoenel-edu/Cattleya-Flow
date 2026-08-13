@@ -2,15 +2,14 @@
 
 Restringido a Administrador y Supervisor (RB-02, RS-02).
 """
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from backend.api.deps import requiere_roles
 from backend.core.database import get_db
 from backend.models.enums import Rol
 from backend.models.usuario import Usuario
-from backend.schemas import SolicitarReporteRequest
 from backend.services.reporte_service import ReporteService
 
 router = APIRouter(prefix="/api/reportes", tags=["Reportes"])
@@ -33,57 +32,27 @@ def metricas(
     return ReporteService(db).calcularMetricas(periodo, usuarioId)
 
 
-@router.post("", status_code=status.HTTP_202_ACCEPTED)
-def solicitar(
-    datos: SolicitarReporteRequest,
-    tareas: BackgroundTasks,
+@router.get("/exportar")
+def exportar(
+    periodo: str = Query("hoy", description="hoy | semana | mes"),
+    formato: str = Query("excel", description="excel | pdf"),
+    usuarioId: int | None = Query(None, description="opt [filtrar por empleado]"),
     usuario: Usuario = Depends(admin_o_supervisor),
     db: Session = Depends(get_db),
 ):
-    """POST /api/reportes -> 202 Accepted, reporteId
+    """GET /api/reportes/exportar -> archivo PDF/Excel.
 
-    Responde de inmediato y genera el archivo en segundo plano: es el patron
-    asincrono del diagrama, pensado para periodos con muchos registros.
+    buscarPorPeriodo -> calcularMetricas -> exportar del diagrama, en una
+    sola peticion sincrona (ver docstring de ReporteService.exportar).
     """
-    servicio = ReporteService(db)
-    reporte = servicio.solicitar(
-        periodo=datos.periodo,
-        tipo=datos.tipo,
-        formato=datos.formato,
-        solicitante=usuario,
-        usuario_id=datos.usuarioId,
-    )
-
-    tareas.add_task(servicio.generarArchivo, reporte.id, datos.periodo, datos.usuarioId)
-
-    return {
-        "mensaje": "Reporte en generacion",
-        "reporteId": reporte.id,
-        "estado": reporte.estado,
-    }
-
-
-@router.get("/{reporte_id}")
-def estado(
-    reporte_id: int,
-    usuario: Usuario = Depends(admin_o_supervisor),
-    db: Session = Depends(get_db),
-):
-    """GET /api/reportes/{id} -> estado de la generacion (para el polling)."""
-    return ReporteService(db).estado(reporte_id)
-
-
-@router.get("/{reporte_id}/descargar")
-def descargar(
-    reporte_id: int,
-    usuario: Usuario = Depends(admin_o_supervisor),
-    db: Session = Depends(get_db),
-):
-    """GET /api/reportes/{id}/descargar -> archivo PDF/Excel"""
-    ruta, nombre = ReporteService(db).obtenerArchivo(reporte_id)
+    contenido, nombre = ReporteService(db).exportar(periodo, formato, usuario, usuarioId)
     tipo_mime = (
         "application/pdf"
         if nombre.endswith(".pdf")
         else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    return FileResponse(path=ruta, filename=nombre, media_type=tipo_mime)
+    return Response(
+        content=contenido,
+        media_type=tipo_mime,
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )

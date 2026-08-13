@@ -144,11 +144,11 @@ const API = (() => {
 
     // ------------------------------------------------- CU-04
     metricas: (periodo = 'hoy') => pedir(`/api/reportes/metricas?periodo=${periodo}`),
-    solicitarReporte: (periodo, formato) =>
-      pedir('/api/reportes', { method: 'POST', body: json({ periodo, formato, tipo: 'productividad' }) }),
-    estadoReporte: (id) => pedir(`/api/reportes/${id}`),
-    descargarReporte: (id, formato) =>
-      descargar(`/api/reportes/${id}/descargar`, `reporte.${formato === 'pdf' ? 'pdf' : 'xlsx'}`),
+    exportarReporte: (periodo, formato) =>
+      descargar(
+        `/api/reportes/exportar?periodo=${periodo}&formato=${formato}`,
+        `reporte.${formato === 'pdf' ? 'pdf' : 'xlsx'}`
+      ),
 
     // ------------------------------------------------- CU-05
     usuarios: () => pedir('/api/usuarios'),

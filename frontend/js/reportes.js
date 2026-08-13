@@ -96,11 +96,7 @@ const Reportes = (() => {
       .join('');
   }
 
-  /**
-   * Solicita el reporte y espera a que el backend lo termine.
-   * El POST responde 202 Accepted sin el archivo (el diagrama lo modela
-   * asincrono), asi que hay que consultar el estado hasta que este listo.
-   */
+  /** Genera y descarga el reporte en una sola peticion sincrona. */
   async function exportar(formato) {
     const boton = formato === 'pdf'
       ? document.getElementById('btn-export-pdf')
@@ -110,22 +106,7 @@ const Reportes = (() => {
     boton.textContent = 'Generando...';
 
     try {
-      const { reporteId } = await API.solicitarReporte(periodoActual, formato);
-
-      // Polling con tope: sin limite, un reporte fallido dejaria el boton
-      // bloqueado para siempre.
-      const MAX_INTENTOS = 20;
-      let listo = false;
-      for (let i = 0; i < MAX_INTENTOS; i++) {
-        const estado = await API.estadoReporte(reporteId);
-        if (estado.listo) { listo = true; break; }
-        if (estado.estado === 'error') throw new Error('El reporte falló al generarse');
-        await new Promise((r) => setTimeout(r, 400));
-      }
-
-      if (!listo) throw new Error('El reporte está tardando demasiado. Intenta de nuevo.');
-
-      await API.descargarReporte(reporteId, formato);
+      await API.exportarReporte(periodoActual, formato);
       UI.toast(`Reporte ${formato === 'pdf' ? 'PDF' : 'Excel'} descargado ✓`, 'success');
     } catch (error) {
       UI.toast(error.message, 'danger');

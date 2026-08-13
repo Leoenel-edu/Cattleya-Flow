@@ -1,6 +1,6 @@
 """HabitacionController - CU-02 (Cambiar Estado) y CU-03 (Panel de Disponibilidad)."""
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from backend.api.deps import requiere_roles, usuario_actual
@@ -48,8 +48,12 @@ def hojaQR(
     y la aplicacion abre directamente esa habitacion (CU-02, escanearQR).
     """
     habitaciones = HabitacionService(db).listar()
-    ruta = generar_hoja_pdf(habitaciones)
-    return FileResponse(path=ruta, filename=ruta.name, media_type="application/pdf")
+    contenido, nombre = generar_hoja_pdf(habitaciones)
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
 
 
 @router.get("/qr/info")

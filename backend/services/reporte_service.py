@@ -1,10 +1,16 @@
 """CU-04: Generar Reportes de Productividad.
 
 Implementa el diagrama de secuencia de Martinez Jostin: buscarPorPeriodo ->
-calcularMetricas -> exportar (asincrono) -> 202 Accepted -> descargar.
+calcularMetricas -> exportar -> descargar.
+
+La generacion es sincrona (una sola peticion, sin 202 Accepted + polling):
+en un entorno serverless (Vercel) una tarea en segundo plano puede no
+sobrevivir despues de que la respuesta se envia, y el archivo generado no
+tiene donde persistir entre una peticion y la siguiente. El reporte es
+pequeno (una tabla de metricas), asi que generarlo en el mismo request no
+introduce una espera perceptible.
 """
 from datetime import datetime, time, timedelta
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -16,8 +22,7 @@ from backend.models.usuario import Usuario
 from backend.repositories.base_repository import BaseRepository
 from backend.repositories.habitacion_repository import HabitacionRepository
 from backend.repositories.registro_repository import RegistroRepository
-from backend.services.errors import FormatoInvalido, NoEncontrado
-from backend.services.generador_archivo import FORMATOS_SOPORTADOS, GeneradorArchivo
+from backend.services.generador_archivo import GeneradorArchivo
 
 
 class ReporteRepository(BaseRepository[Reporte]):
@@ -131,86 +136,26 @@ class ReporteService:
         return max(50, min(100, round(bruta)))
 
     # ------------------------------------------------------------ generacion
-    def solicitar(
-        self, periodo: str, tipo: str, formato: str, solicitante: Usuario, usuario_id: int | None = None
-    ) -> Reporte:
-        """POST /api/reportes -> 202 Accepted, reporteId.
+    def exportar(
+        self, periodo: str, formato: str, solicitante: Usuario, usuario_id: int | None = None
+    ) -> tuple[bytes, str]:
+        """GET /api/reportes/exportar -> archivo PDF/Excel.
 
-        Valida y registra el reporte; el archivo se escribe despues en segundo
-        plano (ver `generarArchivo`), tal como modela el mensaje asincrono del
-        diagrama.
+        calcularMetricas -> exportar, en la misma peticion. Se deja constancia
+        en `Reporte` (RNF-06: auditoria) de quien pidio que reporte y cuando,
+        aunque el archivo en si no se guarde en ningun lado.
         """
-        formato = (formato or "").lower().strip()
-
-        # alt [formato invalido] - se valida antes de crear nada.
-        if formato not in FORMATOS_SOPORTADOS:
-            raise FormatoInvalido(
-                f"Formato no soportado: '{formato}'",
-                extra={"formatosValidos": sorted(FORMATOS_SOPORTADOS)},
-            )
-
         _, _, etiqueta = self.resolverPeriodo(periodo)
+        metricas = self.calcularMetricas(periodo, usuario_id)
+        contenido, nombre = GeneradorArchivo.exportar(metricas, formato, etiqueta)
 
-        reporte = Reporte(
-            tipo=tipo or "productividad",
-            formato=formato,
-            periodo=etiqueta,
-            estado="procesando",
-            solicitante_id=solicitante.id,
+        self.reportes.guardar(
+            Reporte(
+                tipo="productividad",
+                formato=formato.lower().strip(),
+                periodo=etiqueta,
+                solicitante_id=solicitante.id,
+            )
         )
-        return self.reportes.guardar(reporte)
 
-    def generarArchivo(self, reporte_id: int, periodo: str, usuario_id: int | None = None) -> None:
-        """Tarea en segundo plano: calcula, escribe el archivo y marca listo.
-
-        Cualquier excepcion se captura y se refleja en el estado del reporte:
-        si escapara, moriria en el hilo de background sin que nadie se entere y
-        el reporte quedaria "procesando" para siempre.
-        """
-        reporte = self.reportes.obtenerPorId(reporte_id)
-        if reporte is None:
-            return
-
-        try:
-            metricas = self.calcularMetricas(periodo, usuario_id)
-            ruta = GeneradorArchivo.exportar(metricas, reporte.formato, reporte.periodo)
-            reporte.rutaArchivo = str(ruta)
-            reporte.estado = "listo"
-        except Exception as exc:  # noqa: BLE001
-            reporte.estado = "error"
-            reporte.rutaArchivo = None
-            import logging
-
-            logging.getLogger(__name__).exception("Fallo al generar el reporte %s: %s", reporte_id, exc)
-        finally:
-            self.db.commit()
-
-    def obtenerArchivo(self, reporte_id: int) -> tuple[Path, str]:
-        """GET /api/reportes/{id}/descargar -> (ruta, nombre)"""
-        reporte = self.reportes.obtenerPorId(reporte_id)
-        if reporte is None:
-            raise NoEncontrado(f"El reporte {reporte_id} no existe")
-        if reporte.estado == "error":
-            raise NoEncontrado("El reporte fallo al generarse. Intenta de nuevo.")
-        if not reporte.estaListo:
-            raise NoEncontrado("El reporte aun se esta generando")
-
-        ruta = Path(reporte.rutaArchivo)
-        if not ruta.exists():
-            raise NoEncontrado("El archivo del reporte ya no esta disponible")
-
-        return ruta, ruta.name
-
-    def estado(self, reporte_id: int) -> dict:
-        reporte = self.reportes.obtenerPorId(reporte_id)
-        if reporte is None:
-            raise NoEncontrado(f"El reporte {reporte_id} no existe")
-        return {
-            "id": reporte.id,
-            "tipo": reporte.tipo,
-            "formato": reporte.formato,
-            "periodo": reporte.periodo,
-            "estado": reporte.estado,
-            "listo": reporte.estaListo,
-            "fechaGeneracion": reporte.fechaGeneracion.isoformat(),
-        }
+        return contenido, nombre
