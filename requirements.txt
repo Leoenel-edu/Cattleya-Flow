@@ -1,0 +1,28 @@
+# Cattleya-Flow - Dependencias del Backend
+# Instalar con:  pip install -r requirements.txt
+
+# --- Capa de Presentacion (API REST + WebSocket) ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Capa de Logica de Negocio ---
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# --- Capa de Acceso a Datos ---
+SQLAlchemy==2.0.36
+
+# --- Seguridad (RNF-02: bcrypt en contrasenas, AES-256 en datos sensibles, JWT en sesiones) ---
+bcrypt==4.2.1
+PyJWT==2.10.1
+cryptography==44.0.0
+
+# --- Servicios Externos ---
+# RF-05: reportes PDF y Excel
+openpyxl==3.1.5
+reportlab==4.2.5
+# CU-02: codigos QR por habitacion (escanearQR)
+qrcode[pil]==8.0
+
+# --- Verificacion (python -m tests.verificar_sistema) ---
+httpx==0.28.1

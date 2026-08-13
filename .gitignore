@@ -1,0 +1,29 @@
+# Entorno virtual
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Base de datos local (se regenera con: python -m database.seed)
+database/*.db
+database/*.db-journal
+
+# Reportes generados en tiempo de ejecucion
+storage/reportes/*
+!storage/reportes/.gitkeep
+
+# Configuracion con secretos
+.env
+
+# Editores / SO
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# Configuracion local de Claude Code (permisos y rutas de esta maquina)
+.claude/settings.local.json
